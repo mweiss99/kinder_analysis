@@ -1,6 +1,6 @@
 /* I: Import data, operationalize variables 
 ------------------------------------------------------------- */ 
-cd "/Users/markweiss/Documents/Research/Projects/kinder_ra/data"
+cd "X~X"
 
 use nes1986, clear
 
