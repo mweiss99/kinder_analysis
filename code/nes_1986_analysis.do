@@ -30,19 +30,20 @@ replace white = 1 if race == 1 & hispanic == 5 & race != 99
 
 g black = .
 replace black = 1 if race == 2
+replace black = 0 if race == 1 | (race > 2 & race != 99)
 
-g nhs = 0 
+g nhs = .
 replace nhs = 1 if education < 12 
+replace nhs = 0 if education >= 12 & education != 99 
 
+g hs = . 
+replace hs = 1 if education == 12
+replace hs = 0 if education < 12 
 
-* rename variables related to knowledge
-forval y = 3/8 { // this loop replaces each relevent variable name with its label
-	foreach v of var V86034`y' {
-		local x : var label `v'
-		local x = strtoname("`x'")
-		rename `v' `x' 
-	}
-}
+g somecol = . 
+replace somecol = 1 if inrange(education, 13, 15)
+replace somecol = 0 if education < 12 | (education > 15 & education != 99) // education == 99 is no response 
 
-
-
+g college = .
+replace college = 1 if education == 16 
+replace college = 0 if education < 16 | (education > 16 & education != 99) 
