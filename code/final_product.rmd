@@ -1,0 +1,752 @@
+########################################################################################
+# This file contains all of the work completed by Mark Weiss as an RA for Donald Kinder.
+# Last updated 12/22/2023 by Mark Weiss
+########################################################################################
+---
+title: '1986 ANES Analysis: Parts 1-7'
+author: "Mark Weiss to Don Kinder"
+date: "December 22, 2023"
+output:
+  pdf_document: default
+  toc: yes
+  theme: united
+  html_document: null
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, results='hide', message = FALSE, error = FALSE, echo = FALSE}
+# ==================================================================
+# I: Load packages, import data and define variables of interest
+# ==================================================================
+
+# clear global environment and set working directory
+rm(list = ls())
+setwd("/Users/markweiss/Dropbox/Mac (2)/Documents/Research/Projects/kinder_ra/data")
+
+# install packages
+install_pack <- function(pkg) {
+  new.pkg <- pkg[!(pkg %in% installed.packages()[, "Package"])]
+  if(length(new.pkg))
+    install.packages(new.pkg, dependencies = TRUE)
+  sapply(pkg, require, character.only = TRUE)
+}
+
+packages <- c("dplyr", "readr", "tidycensus", "knitr", "haven","aod","psych",
+              "gmodels","ggplot2")
+install_pack(packages)
+
+# import data
+mydata <- read_dta("nes1986.dta")
+
+# rename important vars
+mydata <- mydata %>% 
+  rename("form" = V860046, 
+         "sex" = V860755, 
+         "race" = V860756, 
+         "hispanic" = V860757, 
+         "education" = V860599,  
+         "rent_own" = V860754, 
+         "try_harder" = V860579, 
+         "slvry_blame" = V860580, 
+         "less_deserve" = V860566, 
+         "overc_prej" = V860568, 
+         "know_bush" = V860343,
+         "know_weinberger" = V860344,
+         "know_rehnquist" = V860345, 
+         "know_volker" = V860346, 
+         "know_dole" = V860347, 
+         "know_oneill" = V860348,
+         "interest_1" = V860102, 
+         "interest_2" = V860059,
+         "party_id" = V860300, 
+         "govt_services" = V860448, 
+         "coop_russia" = V860487, 
+         "import_restr" = V860520, 
+         "defense_spend" = V860405, 
+         "interv_ca" = V860428, 
+         "hear_africa" = V860489, 
+         "africa_sanct" = V860490, 
+         "eq_opp_succeed" = V860364, 
+         "eq_rights_toofar" = V860365, 
+         "dont_give_eqchance" = V860366, 
+         "worried_less_eq" = V860367, 
+         "treateq_few_prob" = V860369,
+         "bigprob" = V860368,
+         "africa_strength" = V860491,
+         "racism_bio" = V860582,
+         "integration" = V860485,
+         "int_op" = V860484,
+         "workplace_op" = V860469,
+         "workplace" = V860470,
+         "effort_poc" = V860426,
+         "effort_black" = V860427
+  )
+
+# classify form A and B
+mydata$form_a <- ifelse(mydata$form %in% c(1, 4), 1, 0)
+mydata$form_b <- ifelse(mydata$form %in% c(2, 3), 1, 0)
+
+# define demographic/socioeconomic variables
+mydata$white <- rep(NA, nrow(mydata))
+mydata$black <- rep(NA, nrow(mydata))
+
+mydata$nhs <- rep(NA, nrow(mydata))
+mydata$hs <- rep(NA, nrow(mydata))
+mydata$somecol <- rep(NA, nrow(mydata))
+mydata$college <- rep(NA, nrow(mydata))
+mydata$less_hs <- rep(NA, nrow(mydata))
+mydata$some_postcol <- rep(NA, nrow(mydata))
+mydata$postgrad <- rep(NA, nrow(mydata))
+mydata$own <- rep(NA, nrow(mydata))
+
+mydata$op_africa <- rep(NA, nrow(mydata))
+mydata$sanctions <- rep(NA, nrow(mydata))
+mydata$op_govt_services <- rep(NA, nrow(mydata))
+mydata$op_coop_russia <- rep(NA, nrow(mydata))
+mydata$op_defense_spend <- rep(NA, nrow(mydata))
+mydata$op_interv_ca <- rep(NA, nrow(mydata))
+mydata$op_import_restr <- rep(NA, nrow(mydata))
+
+mydata$egal <- rep(NA, nrow(mydata))
+
+# ==================================================================
+# II: Code outcomes and covariates of interest
+# ==================================================================
+
+# code demographic vars
+mydata <- mydata %>%
+  mutate(
+    white = ifelse(between(race, 1, 4) & race != 99, 0, white),
+    white = ifelse(race == 1 & hispanic == 5 & race != 99, 1, white),
+    black = ifelse(race == 2, 1, ifelse(race == 1 | race > 2, 0, black)),
+    female = ifelse(sex == 2, 0, 1),
+    sex = ifelse(sex == 2, 0, ifelse(sex == 1, 1, NA))
+  ) 
+
+# code socioeconomic vars
+mydata <- mydata %>%
+  mutate(
+    nhs = case_when(
+    education < 12 ~ 1,
+    education >= 12 & education != 99 ~ 0,
+    TRUE ~ NA_real_
+  ),
+  hs = case_when(
+    education == 12 ~ 1,
+    education < 12 | (education > 12 & education != 99) ~ 0,
+    TRUE ~ NA_real_
+  ),
+  somecol = case_when(
+    between(education, 13, 15) ~ 1,
+    education < 12 | (education > 15 & education != 99) ~ 0,
+    TRUE ~ NA_real_
+  ),
+  college = case_when(
+    education == 16 ~ 1,
+    education < 16 | (education > 16 & education != 99) ~ 0,
+    TRUE ~ NA_real_
+  ),
+  less_hs = case_when(
+    education < 12 ~ 1, 
+    education >= 12 & education != 99 ~ 0, 
+    education == 99 ~ NA_real_
+  ),
+  some_postcol = case_when(
+    between(education, 13, 15) ~ 1,
+    education < 12 | (education > 15 & education != 99) ~ 0,
+    TRUE ~ NA_real_
+  ))
+
+mydata <- mydata %>%
+  mutate(own = case_when(
+    rent_own == 1 ~ 1,
+    rent_own %in% 2:7 ~ 0,
+    TRUE ~ NA_real_
+  ))
+
+# identify political figure vars
+names <- c("bush", "weinberger", "rehnquist", "volker", "dole", "oneill")
+
+mydata <- mydata %>%
+  mutate(across(starts_with("know"), ~ ifelse(. == 1, 1, ifelse(. %in% c(5, 8), 0, NA)), .names = "ident_{.col}")) %>%
+  select(-starts_with("know")) %>%
+  rename(
+    "ident_bush" = ident_know_bush, 
+    "ident_weinberger" = ident_know_weinberger, 
+    "ident_rehnquist" = ident_know_rehnquist, 
+    "ident_volker" = ident_know_volker, 
+    "ident_dole" = ident_know_dole,
+    "ident_oneill" = ident_know_oneill
+  )
+
+mydata$knowledge <- rowMeans(mydata[, c("ident_bush", "ident_weinberger",
+                                        "ident_rehnquist", "ident_volker", "ident_dole", "ident_oneill")])
+
+# interest in politics variables
+mydata <- mydata %>%
+  mutate(interest_1 = case_when(
+    interest_1 == 1 ~ 0.5,
+    interest_1 == 2 ~ 0.334,
+    interest_1 == 4 ~ 0.167,
+    interest_1 == 5 ~ 0,
+    interest_1 %in% c(8, 9) ~ NA_real_,
+    TRUE ~ interest_1
+  )) %>%
+  mutate(interest_2 = case_when(
+    interest_2 == 1 ~ 0.5,
+    interest_2 == 3 ~ 0.334,
+    interest_2 == 5 ~ 0.167,
+    interest_2 == 9 ~ NA_real_,
+    TRUE ~ interest_2
+  ))
+
+mydata$taste <- rowSums((mydata[, c("interest_1", "interest_2")]))
+
+# modern racism variable
+# overc_prej, slvr_blame, less_deserve, try_harder
+
+mydata <- mydata %>%
+  mutate(overc_prej = case_when( 
+    overc_prej %in% c(0, 8, 9) ~ NA_real_,
+    overc_prej == 1 ~ 1, 
+    overc_prej == 2 ~ 0.5, 
+    overc_prej == 3 ~ 0,
+    overc_prej == 4 ~ -0.5, 
+    overc_prej == 5 ~ -1,
+  )) %>%
+  mutate(try_harder = case_when(
+    try_harder %in% c(0, 8, 9) ~ NA_real_,
+    try_harder == 1 ~ 1, 
+    try_harder == 2 ~ 0.5, 
+    try_harder == 3 ~ 0, 
+    try_harder == 4 ~ -0.5,
+    try_harder == 5 ~ -1
+  )) %>%
+  mutate(slvry_blame = case_when(
+    slvry_blame %in% c(0, 8, 9) ~ NA_real_, 
+    slvry_blame == 1 ~ -1, 
+    slvry_blame == 2 ~ -0.5, 
+    slvry_blame == 3 ~ 0, 
+    slvry_blame == 4 ~ 0.5, 
+    slvry_blame == 5 ~ 1 
+  )) %>%
+  mutate(less_deserve = case_when(
+    less_deserve %in% c(0, 8, 9) ~ NA_real_, 
+    less_deserve == 1 ~ -1, 
+    less_deserve == 2 ~ -0.5, 
+    less_deserve == 3 ~ 0, 
+    less_deserve == 4 ~ 0.5, 
+    less_deserve == 5 ~ 1
+  ))
+
+mydata$racism <- rowMeans(mydata[, c("overc_prej", "try_harder", "slvry_blame", "less_deserve")])
+
+# partisanship variable
+mydata <- mydata %>%
+  mutate(party_id = case_when( 
+    party_id %in% c(7:9) ~ NA_real_,
+    party_id == 0 ~ -1, 
+    party_id == 1 ~ -0.666, 
+    party_id == 2 ~ -0.333, 
+    party_id == 3 ~ 0, 
+    party_id == 4 ~ 0.333, 
+    party_id == 5 ~ 0.666, 
+    party_id == 6 ~ 1))
+
+# two primary dep. vars - opinion on Africa sanctions and actual opinon
+## know_africa = binary for whether one takes a position on Africa sanctions
+## africa_sanct = actual opinion on Sanctions
+mydata <- mydata %>%
+  mutate(op_africa = case_when(
+    hear_africa == 1 ~ 1,
+    hear_africa == 9 ~ NA_real_,
+    hear_africa %in% c(5,8) ~ 0
+  )) %>% 
+  mutate(sanctions = case_when( 
+    africa_strength == 1 ~ 1, 
+    africa_strength == 2 ~ 0.666, 
+    africa_strength == 4 ~ 0.333,
+    africa_strength == 5 ~ 0,
+    africa_strength %in% c(4,8,0) ~ NA_real_
+  ))
+table(mydata$op_africa)
+
+# takes opinion on alternate dep. variables
+mydata <- mydata %>%
+  mutate(op_govt_services = case_when( 
+    govt_services == 9 ~ NA_real_, 
+    govt_services %in% c(0,8) ~ 0, 
+    govt_services %in% c(1:7) ~ 1
+  )) %>%
+  mutate(op_import_restr = ifelse(mydata$import_restr == 1, 1, 
+                                  ifelse(mydata$import_restr %in% c(5, 8), 0, NA))) %>%
+  mutate(op_coop_russia = case_when(
+    coop_russia == 9 ~ NA_real_,
+    coop_russia %in% c(0,8) ~ 0, 
+    coop_russia %in% c(1:7) ~ 1
+  )) %>%
+  mutate(op_defense_spend = case_when(
+    defense_spend == 9 ~ NA_real_,
+    defense_spend %in% c(0,8) ~ 0, 
+    defense_spend %in% c(1:7) ~ 1
+  )) %>%
+  mutate(op_interv_ca = case_when( 
+    interv_ca == 9 ~ NA_real_,
+    interv_ca %in% c(0,8) ~ 0, 
+    interv_ca %in% c(1:7) ~ 1
+  ))
+
+# egalitarian variable
+mydata <- mydata %>%
+  mutate(eq_opp_succeed = case_when( 
+    eq_opp_succeed == 1 ~ 1, 
+    eq_opp_succeed == 2 ~ 0.5, 
+    eq_opp_succeed == 3 ~ 0, 
+    eq_opp_succeed == 4 ~ -0.5, 
+    eq_opp_succeed == 5 ~ -1, 
+    eq_opp_succeed %in% c(8,9) ~ NA_real_
+  )) %>%
+  mutate(dont_give_eqchance = case_when( 
+    dont_give_eqchance == 1 ~ 1, 
+    dont_give_eqchance == 2 ~ 0.5, 
+    dont_give_eqchance == 3 ~ 0, 
+    dont_give_eqchance == 4 ~ -0.5, 
+    dont_give_eqchance == 5 ~ -1, 
+    dont_give_eqchance %in% c(8,9) ~ NA_real_
+  )) %>% 
+  mutate(treateq_few_prob = case_when( 
+    treateq_few_prob == 1 ~ 1, 
+    treateq_few_prob == 2 ~ 0.5, 
+    treateq_few_prob == 3 ~ 0, 
+    treateq_few_prob == 4 ~ -0.5, 
+    treateq_few_prob == 5 ~ -1, 
+    treateq_few_prob %in% c(8,9) ~ NA_real_
+  )) %>%
+  mutate(eq_rights_toofar = case_when(
+    eq_rights_toofar == 1 ~ -1, 
+    eq_rights_toofar == 2 ~ -0.5, 
+    eq_rights_toofar == 3 ~ 0, 
+    eq_rights_toofar == 4 ~ 0.5, 
+    eq_rights_toofar == 5 ~ 1, 
+    eq_rights_toofar %in% c(8,9) ~ NA_real_
+  )) %>% 
+  mutate(worried_less_eq = case_when( 
+    worried_less_eq == 1 ~ -1, 
+    worried_less_eq == 2 ~ -0.5, 
+    worried_less_eq == 3 ~ 0, 
+    worried_less_eq == 4 ~ 0.5, 
+    worried_less_eq == 5 ~ 1, 
+    worried_less_eq %in% c(8,9) ~ NA_real_
+  )) %>%
+  mutate(bigprob = case_when(
+    bigprob == 1 ~ -1, 
+    bigprob == 2 ~ -0.5,
+    bigprob == 3 ~ 0,
+    bigprob == 4 ~ 0.5,
+    bigprob == 5 ~ 1,
+    bigprob %in% c(8,9) ~ NA_real_
+  ))
+
+mydata$egal <- rowMeans(mydata[, c("worried_less_eq", "eq_rights_toofar", 
+                                   "treateq_few_prob", "dont_give_eqchance", "eq_opp_succeed","bigprob")])
+
+```
+
+```{r, echo = FALSE}
+# two primary dep. vars - opinion on Africa sanctions and actual opinon
+## know_africa = binary for whether one takes a position on Africa sanctions
+## africa_sanct = actual opinion on Sanctions
+
+# takes opinion on alternate dep. variables
+mydata <- mydata %>%
+    mutate(op_govt_services = case_when( 
+      govt_services == 9 ~ NA_real_, 
+      govt_services %in% c(0,8) ~ 0, 
+      govt_services %in% c(1:7) ~ 1
+    )) %>%
+    mutate(op_import_restr = ifelse(mydata$import_restr == 1, 1, 
+    ifelse(mydata$import_restr %in% c(5, 8), 0, NA))) %>%
+    mutate(op_coop_russia = case_when(
+      coop_russia == 9 ~ NA_real_,
+      coop_russia %in% c(0,8) ~ 0, 
+      coop_russia %in% c(1:7) ~ 1
+    )) %>%
+    mutate(op_defense_spend = case_when(
+      defense_spend == 9 ~ NA_real_,
+      defense_spend %in% c(0,8) ~ 0, 
+      defense_spend %in% c(1:7) ~ 1
+    )) %>%
+    mutate(op_interv_ca = case_when( 
+      interv_ca == 9 ~ NA_real_,
+      interv_ca %in% c(0,8) ~ 0, 
+      interv_ca %in% c(1:7) ~ 1
+    ))
+
+```
+
+```{r, echo=FALSE}
+# generate summary statistics
+alt_dep <- c("op_govt_services","op_import_restr","op_defense_spend","op_interv_ca","op_coop_russia")
+summary_stats <- lapply(mydata[alt_dep], summary)
+frequencies <- lapply(mydata[alt_dep], table)
+
+# print summary statistics
+for (i in seq_along(summary_stats)) {
+  cat("Frequencies for", alt_dep[i], ":\n")
+  print(frequencies[i])
+  cat("\n")
+  
+  cat("Summary Statistics for", alt_dep[i], ":\n")
+  print(summary_stats[i])
+  cat("\n")
+}
+
+```
+
+### 1) Opinion on sanctions, non-hispanic whites
+```{r}
+# non-hispanic whites, form A
+white_form_a <- mydata %>% filter(white == 1 & form_a == 1)
+table(white_form_a$sanctions)
+
+# whites, formed an opinion = 1, haven't = 0, form B
+table(white_form_a$op_africa)
+
+# non-hispanic whites, form B
+white_form_b <- mydata %>% filter(white == 1 & form_b == 1)
+table(white_form_b$sanctions)
+
+# whites, formed an opinion = 1, haven't = 0, form B
+table(white_form_b$op_africa)
+
+# non-hispanic whites, form A and B
+white_both_forms <- mydata %>% filter(white == 1)
+table(white_both_forms$sanctions)
+
+# whites, formed an opinion = 1, haven't = 0, form A+B
+table(white_both_forms$op_africa)
+```
+
+### 2) Frequencies for Black Americans
+```{r}
+# Black Americans, form A
+black_form_a <- mydata %>% filter(black == 1 & form_a == 1)
+table(black_form_a$sanctions)
+
+# Black Americans, formed an opinion = 1, haven't = 0 , form A
+table(black_form_a$op_africa)
+
+# Black Americans, form B
+black_form_b <- mydata %>% filter(black == 1 & form_b == 1)
+table(black_form_b$sanctions)
+
+# Black Americans, formed an opinion = 1, haven't = 0 , form B
+table(black_form_b$op_africa)
+
+# Black Americans, form A and B
+black_both_forms <- mydata %>% filter(black == 1)
+table(black_both_forms$sanctions)
+
+# Black Americans, formed an opinion = 1, haven't = 0 , form A+B
+table(black_both_forms$op_africa)
+
+```
+
+### 3) Accounting for No Opinion Model
+**Non-hispanic whites, form A and B**
+```{r, echo=FALSE}
+# create models for all specifications 
+part3_1 <- glm(op_africa ~ knowledge + taste + sex + less_hs + hs + somecol +
+               college, family = binomial(link = "probit"), 
+             data = white_both_forms)
+part3_2 <- glm(op_africa ~ knowledge + taste + sex + less_hs + hs + somecol +
+               college, family = binomial(link = "probit"), 
+             data = white_form_a)
+part3_3 <- glm(op_africa ~ knowledge + taste + sex + less_hs + hs + somecol +
+               college, family = binomial(link = "probit"), 
+             data = white_form_b)
+part3_4 <-  glm(op_africa ~ knowledge + taste + sex + less_hs + hs + somecol +
+               college, family = binomial(link = "probit"), 
+             data = black_both_forms)
+summary(part3_1)
+
+```
+**Non-hispanic whites, form A**
+```{r, echo=FALSE}
+summary(part3_2)
+```
+**Non-hispanic whites, form B**
+```{r, echo=FALSE}
+summary(part3_3)
+```
+**Black Americans, forms A and B**
+```{r, echo=FALSE}
+summary(part3_4)
+```
+
+### 4) Accounting for no opinion with racial resentment
+```{r}
+part4_1 <- glm(op_africa ~ knowledge + taste + sex + less_hs + hs + somecol +
+               college + racism, family = binomial(link = "probit"), 
+             data = white_form_b)
+summary(part4_1)
+```
+
+### 5) Identical model, alternative outcomes
+```{r, echo = FALSE}
+part5_1 <- glm(op_defense_spend ~ knowledge + taste + sex + less_hs + hs + somecol +
+               college + racism, family = binomial(link = "probit"), 
+             data = mydata)
+part5_2 <- glm(op_interv_ca ~ knowledge + taste + sex + less_hs + hs + somecol +
+               college + racism, family = binomial(link = "probit"), 
+             data = mydata)
+part5_3 <- glm(op_govt_services ~ knowledge + taste + sex + less_hs + hs + somecol +
+               college + racism, family = binomial(link = "probit"), 
+             data = mydata)
+part5_4 <- glm(op_coop_russia ~ knowledge + taste + sex + less_hs + hs + somecol +
+               college + racism, family = binomial(link = "probit"), 
+             data = mydata)
+part5_5 <- glm(op_import_restr ~ knowledge + taste + sex + less_hs + hs + somecol +
+               college + racism, family = binomial(link = "probit"), 
+             data = mydata)
+```
+**Defense spending:**
+```{r}
+summary(part5_1)
+```
+**Intervention in Central America:**
+```{r}
+summary(part5_2)
+```
+**Government services/cuts in spending:**
+```{r}
+summary(part5_3)
+```
+**Cooperate with Russia:**
+```{r}
+summary(part5_4)
+```
+**Import Restrictions:**
+```{r}
+summary(part5_5)
+```
+
+### 6) Accounting for opposition
+**Equal Opportunity Variable Descriptives **
+Histogram is in the zip, file name is "egalitarian.png"
+```{r}
+#alpha(mydata, "eq_opp_succeed", "treateq_few_prob", "dont_give_eqchance", "eq_rights_toofar", "worried_less_eq", "bigprob", na.rm = T)
+summary(mydata$egal) # Descriptive Statistics
+
+```
+
+**Frequencies for Party ID Variable**
+```{r} 
+table(mydata$party_id)
+```
+
+**Basic Model **
+```{r}
+part6 <- glm(sanctions ~ racism + egal + party_id, family = binomial(link = "probit"), data = mydata)
+summary(part6)
+```
+
+
+**Same Model, Alternate Egalitarian Variable **
+```{r}
+# Construct alternate version of egalitarian variable
+mydata$egal_alt <- rowMeans(mydata[, c("bigprob","eq_opp_succeed")])
+
+# Descriptive Statistics 
+summary(mydata$egal_alt)
+
+# Identical mode, with alternate egalitarian variable
+part6_alt <- glm(sanctions ~ racism + egal_alt + party_id, family = binomial(link = "probit"), data = mydata)
+summary(part6_alt)
+```
+
+The histogram is in the zip, file name is "egalitarian_alt.png"
+
+**Accounting for biological racism **
+```{r, echo = FALSE}
+# Generate variable for biological racism
+mydata <- mydata %>%
+  mutate(racism_bio = case_when(
+    racism_bio %in% c(8,9,0) ~ NA_real_,
+    racism_bio == 1 ~ 1,
+    racism_bio == 2 ~ 0.5,
+    racism_bio == 3 ~ 0,
+    racism_bio == 4 ~ -0.5,
+    racism_bio == 5 ~ -1
+  ))
+
+# Bio racism in place of modern racism
+part6_b <- glm(sanctions ~ racism_bio + egal + party_id, family = binomial(link = "probit"), data = mydata)
+part6_c <- glm(sanctions ~ racism + racism_bio + egal + party_id, family = binomial(link = "probit"), data = mydata)
+
+```
+
+```{r} 
+# Frequencies for biological racism
+table(mydata$racism_bio)
+
+# Biological racism in place of modern racism
+summary(part6_b)
+
+# Biological racism in addition to modern racism
+summary(part6_c)
+```
+
+### 7) Additional Race Items
+```{r, echo = FALSE}
+# New race items 
+mydata <- mydata %>% 
+  mutate(int_op = case_when( # takes an opinion on school integration
+    int_op %in% c(8,9,0) ~ NA_real_,
+    int_op == 1 ~ 1,
+    int_op == 5 ~ 0
+  )) %>% 
+  mutate(integration = case_when( # 1 = supports integration, 0 = doesn't/depends
+    integration %in% c(8,9,0) ~ NA_real_,
+    integration == 1 ~ 1,
+    integration %in% c(5,7) ~ 0
+  )) %>% 
+  mutate(workplace_op = case_when( # takes an opinion on workplace discrimination
+    workplace %in% c(1,5) ~ 1,
+    workplace %in% c(0,9) ~ 0
+  )) %>%
+  mutate(workplace = case_when( # views on workplace discrimination
+    workplace %in% c(8,9,0) ~ NA_real_,
+    workplace == 1 ~ 1,
+    workplace == 2 ~ 0.666,
+    workplace == 4 ~ 0.333,
+    workplace == 5 ~ 0
+  )) 
+
+# takes an opinion on special effort
+mydata$effort_poc_op <- rep(NA, length(nrow(mydata)))
+mydata$effort_black_op <- rep(NA, length(nrow(mydata)))
+mydata <- mydata %>%
+  mutate(effort_poc_op = case_when(
+    effort_poc %in% c(1,7) ~ 1,
+    effort_poc %in% c(8,0) ~ 0,
+    effort_poc == 9 ~ NA_real_
+  )) %>%
+  mutate(effort_black_op = case_when(
+    effort_black %in% c(1,7) ~ 1,
+    effort_black %in% c(8,0) ~ 0,
+    effort_black == 9 ~ NA_real_
+  ))
+
+# efforts for POCs and Black Americans, respectively
+mydata$effort_poc <- ifelse(mydata$effort_poc %in% c(8, 9, 0), NA, mydata$effort_poc)
+mydata$effort_black <- ifelse(mydata$effort_black %in% c(8, 9, 0), NA, mydata$effort_black)
+```
+
+**Frequencies for alternate race items**
+
+```{r}
+# Function to calculate frequencies based on conditions for multiple variables
+calculate_frequencies <- function(data, conditions) {
+  results <- list()
+  
+  for (variable in names(conditions)) {
+    result_white <- table(data[data$white == 1, variable])
+    result_black <- table(data[data$black == 1, variable])
+    
+    results[[paste("freq_", variable, "_white", sep = "")]] <- result_white
+    results[[paste("freq_", variable, "_black", sep = "")]] <- result_black
+  }
+  
+  return(results)
+}
+
+# Define conditions for each variable
+conditions <- list(
+  effort_poc = 1,
+  effort_poc_op = 1,
+  effort_black = 1,
+  effort_black_op = 1,
+  workplace = 1,
+  workplace_op = 1,
+  integration = 1,
+  int_op = 1
+)
+
+# Generate frequencies for all variables
+frequencies <- calculate_frequencies(mydata, conditions)
+
+# Display the results
+cat("\nFrequencies for each value of each variable if white == 1:\n")
+for (variable in names(frequencies)) {
+  cat(paste(variable, ":\n"))
+  print(frequencies[[variable]])
+  cat("\n")
+}
+```
+
+**Re-doing part 4 with alternate race variables**
+```{r}
+part7_1 <- glm(int_op ~ knowledge + taste + sex + less_hs + hs + somecol +
+               college + racism, family = binomial(link = "probit"), 
+             data = mydata) # takes a position on integration
+
+part7_2 <- glm(workplace_op ~ knowledge + taste + sex + less_hs + hs + somecol +
+                            college + racism, family = binomial(link = "probit"), 
+                          data = mydata) # takes a position on workplace
+
+# Takes an position on school integration
+summary(part7_1)
+
+# Takes a position on workplace discrimination
+summary(part7_2)
+```
+I see that there's an issue with the second model, where the dependent variable is whether
+the respondent took a position on the government ending workplace discrimination. I haven't
+quite been able to figure out why this is, but I ran the model with one predictor
+variable at a time, and the modern racism variable is the one that breaks it:
+
+```{r}
+part7_2_alt <- glm(workplace_op ~ knowledge + taste + sex + less_hs + hs + somecol +
+                 college, family = binomial(link = "probit"), 
+               data = mydata) # takes a position on workplace
+
+summary(part7_2_alt)
+```
+
+I have limited experience in problem-solving this specific type of issue, but I think
+another type of logistic regression may have to be used to reach convergence, otherwise
+there is something off with the modern racism variable.
+
+**Re-doing part 6 with alternate race variables **
+At the time of writing, I cannot get the model for workplace discrimination or special efforts for Black Americans to converge. I also changed the special efforts model to use OLS rather than probit since the dependent variable is continuous with $y \in [1, 7]$.
+```{r}
+# Opinion on school integration
+part7_i <- glm(integration ~ racism + egal + party_id, family = binomial(link = "probit"), 
+               data = mydata)
+summary(part7_i)
+
+# Opinion on effort for all people of color
+part7_j <- lm(effort_poc ~ racism + egal + party_id, data = mydata)
+summary(part7_j)
+
+```
+**Correlation Items**
+```{r}
+# Correlation Tasks
+# Opinion on apartheid and opinion on school integration
+cor(mydata$op_africa, mydata$int_op, method = "pearson", use = "complete.obs")
+
+# Opinion on apartheid and opinion on workplace discrimination
+cor(mydata$op_africa, mydata$workplace_op, method = "pearson", use = "complete.obs")
+
+# Opinion on apartheid and opinion on special efforts for POCs
+cor(mydata$op_africa, mydata$effort_poc_op, method = "pearson", use = "complete.obs")
+
+# Opinion on apartheid and opinion on special efforts for Black Americans
+cor(mydata$op_africa, mydata$effort_black_op, method = "pearson", use = "complete.obs")
+```
+
